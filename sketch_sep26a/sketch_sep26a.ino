@@ -20,4 +20,3 @@ void loop() {
     delay(15);
   }
 }
-joshi gay

@@ -11,7 +11,7 @@ void loop() {
   // Move from 0° to 180°
   for (int angle = 0; angle <= 180; angle++) {
     myServo.write(angle);
-    delay(15);
+    delay(150);
   }
 
   // Move from 180° to 0°

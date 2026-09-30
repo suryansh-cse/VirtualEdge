@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime
+from .health import evaluate_device_health
 from fastapi import FastAPI, Depends, HTTPException
 from .database import engine, SessionLocal
 from .models import Base, Device, Telemetry
@@ -83,19 +84,31 @@ def receive_telemetry(
         timestamp=datetime.utcnow()
     )
 
+
+       
     db.add(telemetry)
     db.commit()
     db.refresh(telemetry)
 
+    health = evaluate_device_health(
+        temperature=data.temperature,
+        voltage=data.voltage,
+        current=data.current,
+        battery=data.battery
+    )
+
     return {
         "message": "Telemetry saved successfully",
-        "telemetry_id": telemetry.id
+        "telemetry_id": telemetry.id,
+        "health": health
     }
+
 
 class DeviceData(BaseModel):
     device_id: str
     name: str
     firmware_version: str = "1.0.0"
+
 
 @app.post("/api/devices")
 def register_device(
@@ -132,11 +145,14 @@ def register_device(
             "status": device.status
         }
     }
+
+
 @app.get("/api/devices")
 def get_devices(db: Session = Depends(get_db)):
     devices = db.query(Device).all()
 
     return devices
+
 
 @app.get("/api/devices/{device_id}")
 def get_device(
@@ -154,4 +170,3 @@ def get_device(
         )
 
     return device
-

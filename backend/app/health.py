@@ -14,9 +14,9 @@ def evaluate_device_health(
         warnings.append("ELEVATED_TEMPERATURE")
 
     # Voltage
-    if voltage < 2.8:
+    if voltage < 0.8:
         critical.append("LOW_VOLTAGE")
-    elif voltage < 3.0:
+    elif voltage < 1.0:
         warnings.append("LOW_VOLTAGE")
 
     # Current

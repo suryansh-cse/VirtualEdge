@@ -6,7 +6,7 @@ from .health import evaluate_device_health
 from fastapi import FastAPI, Depends, HTTPException
 from .database import engine, SessionLocal
 from .models import Base, Device, Telemetry
-
+from .health import evaluate_device_health
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -91,11 +91,11 @@ def receive_telemetry(
     db.refresh(telemetry)
 
     health = evaluate_device_health(
-        temperature=data.temperature,
-        voltage=data.voltage,
-        current=data.current,
-        battery=data.battery
-    )
+    temperature=data.temperature,
+    voltage=data.voltage,
+    current=data.current,
+    battery=data.battery
+)
 
     return {
         "message": "Telemetry saved successfully",

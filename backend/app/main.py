@@ -2,9 +2,9 @@ from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime
-
+from fastapi import FastAPI, Depends, HTTPException
 from .database import engine, SessionLocal
-from .models import Base, Telemetry
+from .models import Base, Device, Telemetry
 
 
 # Create database tables
@@ -90,4 +90,45 @@ def receive_telemetry(
     return {
         "message": "Telemetry saved successfully",
         "telemetry_id": telemetry.id
+    }
+
+class DeviceData(BaseModel):
+    device_id: str
+    name: str
+    firmware_version: str = "1.0.0"
+
+@app.post("/api/devices")
+def register_device(
+    data: DeviceData,
+    db: Session = Depends(get_db)
+):
+    existing_device = db.query(Device).filter(
+        Device.device_id == data.device_id
+    ).first()
+
+    if existing_device:
+        raise HTTPException(
+            status_code=400,
+            detail="Device already exists"
+        )
+
+    device = Device(
+        device_id=data.device_id,
+        name=data.name,
+        firmware_version=data.firmware_version,
+        status="offline"
+    )
+
+    db.add(device)
+    db.commit()
+    db.refresh(device)
+
+    return {
+        "message": "Device registered successfully",
+        "device": {
+            "device_id": device.device_id,
+            "name": device.name,
+            "firmware_version": device.firmware_version,
+            "status": device.status
+        }
     }

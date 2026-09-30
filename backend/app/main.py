@@ -132,3 +132,26 @@ def register_device(
             "status": device.status
         }
     }
+@app.get("/api/devices")
+def get_devices(db: Session = Depends(get_db)):
+    devices = db.query(Device).all()
+
+    return devices
+
+@app.get("/api/devices/{device_id}")
+def get_device(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    return device
+

@@ -1,48 +1,169 @@
 import sys
 import os
+import time
 
-# Allow Python to find modules from the project root
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Allow imports from project root
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
 )
 
+sys.path.append(PROJECT_ROOT)
+
 from filter import MovingAverageFilter
-from adc import ADC
-from temperature import TemperatureSensor
+from virtual_device.temperature import TemperatureSensor
+from virtual_device.adc import ADC
+from virtual_device.fault_detector import FaultDetector
 
 
-def run_simulation(inject_spike=False):
-    sensor = TemperatureSensor()
-    adc = ADC()
-    signal_filter = MovingAverageFilter(window_size=5)
+# =========================
+# CONFIGURATION
+# =========================
 
-    print("VirtualEdge ECE Sensor Simulation")
-    print("-" * 75)
+TOTAL_SAMPLES = 20
+SPIKE_SAMPLE = 10
+SPIKE_VALUE = 2500
 
-    for sample in range(20):
+FILTER_WINDOW = 5
+MIN_ADC = 1000
+MAX_ADC = 1600
+
+
+# =========================
+# CREATE COMPONENTS
+# =========================
+
+sensor = TemperatureSensor(
+    base_temperature=28.0,
+    noise_level=0.3
+)
+
+adc = ADC(
+    bits=12,
+    reference_voltage=3.3
+)
+
+signal_filter = MovingAverageFilter(
+    window_size=FILTER_WINDOW
+)
+
+fault_detector = FaultDetector(
+    min_adc=MIN_ADC,
+    max_adc=MAX_ADC
+)
+
+
+# =========================
+# MAIN SIMULATION
+# =========================
+
+def main():
+
+    print("=" * 70)
+    print("VirtualEdge - Day 3 Fault Detection Test")
+    print("=" * 70)
+
+    print(f"Samples       : {TOTAL_SAMPLES}")
+    print(f"Spike sample  : {SPIKE_SAMPLE}")
+    print(f"Spike ADC     : {SPIKE_VALUE}")
+    print(f"Filter window : {FILTER_WINDOW}")
+    print(f"Normal range  : {MIN_ADC} - {MAX_ADC}")
+    print()
+
+    for sample in range(1, TOTAL_SAMPLES + 1):
+
+        # -------------------------
+        # Temperature sensor
+        # -------------------------
+
         temperature = sensor.read_temperature()
-        voltage = sensor.temperature_to_voltage(temperature)
+
+        # -------------------------
+        # Temperature -> Voltage
+        # -------------------------
+
+        voltage = sensor.temperature_to_voltage(
+            temperature
+        )
+
+        # -------------------------
+        # Voltage -> ADC
+        # -------------------------
 
         raw_adc = adc.convert(voltage)
 
-        # Inject an artificial ADC fault at sample 10
-        if inject_spike and sample == 10:
-            raw_adc = 2500
-            fault_marker = " <-- SPIKE INJECTED"
-        else:
-            fault_marker = ""
+        # -------------------------
+        # Inject test fault
+        # -------------------------
 
-        filtered_adc = signal_filter.update(raw_adc)
+        spike = False
 
-        print(
-            f"Sample: {sample + 1:02d} | "
-            f"Temperature: {temperature:6.2f} °C | "
-            f"Voltage: {voltage:.4f} V | "
-            f"Raw ADC: {raw_adc:4d} | "
-            f"Filtered ADC: {filtered_adc:7.2f}"
-            f"{fault_marker}"
+        if sample == SPIKE_SAMPLE:
+            raw_adc = SPIKE_VALUE
+            spike = True
+
+        # -------------------------
+        # Moving average filter
+        # -------------------------
+
+        filtered_adc = signal_filter.update(
+            raw_adc
         )
 
+        # -------------------------
+        # Fault detection
+        # -------------------------
+
+        fault_status = fault_detector.check(
+            raw_adc
+        )
+
+        # -------------------------
+        # Display
+        # -------------------------
+
+        print("-" * 70)
+
+        if spike:
+            print("⚠️  TEST ADC SPIKE INJECTED")
+
+        print(
+            f"Sample       : {sample:02d}"
+        )
+
+        print(
+            f"Temperature  : {temperature:.2f} °C"
+        )
+
+        print(
+            f"Voltage      : {voltage:.4f} V"
+        )
+
+        print(
+            f"Raw ADC      : {raw_adc}"
+        )
+
+        print(
+            f"Filtered ADC : {filtered_adc:.2f}"
+        )
+
+        print(
+            f"Fault Status : {fault_status}"
+        )
+
+        time.sleep(1)
+
+    # -------------------------
+    # Finished
+    # -------------------------
+
+    print("-" * 70)
+    print("Day 3 fault detection test completed.")
+    print("=" * 70)
+
+
+# =========================
+# START PROGRAM
+# =========================
 
 if __name__ == "__main__":
-    run_simulation()
+    main()

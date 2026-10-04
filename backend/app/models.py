@@ -27,6 +27,10 @@ class Telemetry(Base):
     current = Column(Float)
     battery = Column(Float)
 
+    raw_adc = Column(Integer)
+    filtered_adc = Column(Float)
+    fault_status = Column(String)
+
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     packet_id = Column(String, nullable=True)

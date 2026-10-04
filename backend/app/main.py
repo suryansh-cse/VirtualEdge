@@ -42,8 +42,10 @@ class TelemetryData(BaseModel):
     voltage: float
     current: float
     battery: float
+    raw_adc: int
+    filtered_adc: float
+    fault_status: str
     packet_id: str | None = None
-
 
 # -------------------------
 # Basic routes
@@ -80,29 +82,40 @@ def receive_telemetry(
         voltage=data.voltage,
         current=data.current,
         battery=data.battery,
+        raw_adc=data.raw_adc,
+        filtered_adc=data.filtered_adc,
+        fault_status=data.fault_status,
         packet_id=data.packet_id,
         timestamp=datetime.utcnow()
     )
 
-
-       
     db.add(telemetry)
+
+    # Update device status
+    device = db.query(Device).filter(
+        Device.device_id == data.device_id
+    ).first()
+
+    if device:
+        device.status = "online"
+        device.last_seen = datetime.utcnow()
+
     db.commit()
     db.refresh(telemetry)
 
+    # Evaluate device health
     health = evaluate_device_health(
-    temperature=data.temperature,
-    voltage=data.voltage,
-    current=data.current,
-    battery=data.battery
-)
+        temperature=data.temperature,
+        voltage=data.voltage,
+        current=data.current,
+        battery=data.battery
+    )
 
     return {
         "message": "Telemetry saved successfully",
         "telemetry_id": telemetry.id,
         "health": health
     }
-
 
 class DeviceData(BaseModel):
     device_id: str

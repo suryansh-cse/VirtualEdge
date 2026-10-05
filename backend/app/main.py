@@ -183,3 +183,87 @@ def get_device(
         )
 
     return device
+@app.get("/api/devices/{device_id}/telemetry")
+def get_device_telemetry(
+    device_id: str,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    telemetry = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).limit(limit).all()
+
+    if not telemetry:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    return telemetry
+@app.get("/api/devices/{device_id}/latest")
+def get_latest_telemetry(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    telemetry = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).first()
+
+    if not telemetry:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    return telemetry
+@app.get("/api/devices/{device_id}/summary")
+def get_device_summary(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    latest = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).first()
+
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    return {
+        "device": {
+            "device_id": device.device_id,
+            "name": device.name,
+            "firmware_version": device.firmware_version,
+            "status": device.status,
+            "last_seen": device.last_seen,
+        },
+        "latest_telemetry": {
+            "temperature": latest.temperature,
+            "voltage": latest.voltage,
+            "current": latest.current,
+            "battery": latest.battery,
+            "raw_adc": latest.raw_adc,
+            "filtered_adc": latest.filtered_adc,
+            "fault_status": latest.fault_status,
+            "packet_id": latest.packet_id,
+            "timestamp": latest.timestamp,
+        }
+    }

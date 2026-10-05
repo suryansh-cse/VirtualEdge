@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime 
+from sqlalchemy import Column, Integer, String, Float, DateTime
 from datetime import datetime
 from .database import Base
 
@@ -7,20 +7,54 @@ class Device(Base):
     __tablename__ = "devices"
 
     id = Column(Integer, primary_key=True, index=True)
-    device_id = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
-    firmware_version = Column(String, default="1.0.0")
-    status = Column(String, default="offline")
-    last_seen = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+
+    device_id = Column(
+        String,
+        unique=True,
+        index=True,
+        nullable=False
+    )
+
+    name = Column(
+        String,
+        nullable=False
+    )
+
+    firmware_version = Column(
+        String,
+        default="1.0.0"
+    )
+
+    status = Column(
+        String,
+        default="offline"
+    )
+
+    last_seen = Column(
+        DateTime,
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
 
 
 class Telemetry(Base):
     __tablename__ = "telemetry"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
 
-    device_id = Column(String, index=True, nullable=False)
+    device_id = Column(
+        String,
+        index=True,
+        nullable=False
+    )
 
     temperature = Column(Float)
     voltage = Column(Float)
@@ -31,6 +65,53 @@ class Telemetry(Base):
     filtered_adc = Column(Float)
     fault_status = Column(String)
 
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
 
-    packet_id = Column(String, nullable=True)
+    packet_id = Column(
+        String,
+        nullable=True
+    )
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    device_id = Column(
+        String,
+        index=True,
+        nullable=False
+    )
+
+    alert_type = Column(
+        String,
+        nullable=False
+    )
+
+    message = Column(
+        String,
+        nullable=False
+    )
+
+    severity = Column(
+        String,
+        default="warning"
+    )
+
+    timestamp = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
+    acknowledged = Column(
+        Integer,
+        default=0
+    )

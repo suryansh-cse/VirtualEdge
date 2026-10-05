@@ -5,7 +5,7 @@ from datetime import datetime
 from .health import evaluate_device_health
 from fastapi import FastAPI, Depends, HTTPException
 from .database import engine, SessionLocal
-from .models import Base, Device, Telemetry
+from .models import Base, Device, Telemetry, Alert 
 from .health import evaluate_device_health
 
 # Create database tables
@@ -110,6 +110,18 @@ def receive_telemetry(
         current=data.current,
         battery=data.battery
     )
+        # Create alert when telemetry reports a fault
+    if data.fault_status != "NORMAL":
+
+        alert = Alert(
+            device_id=data.device_id,
+            alert_type="DEVICE_FAULT",
+            message=f"Device reported fault status: {data.fault_status}",
+            severity="critical"
+        )
+
+        db.add(alert)
+        db.commit()
 
     return {
         "message": "Telemetry saved successfully",
@@ -266,4 +278,41 @@ def get_device_summary(
             "packet_id": latest.packet_id,
             "timestamp": latest.timestamp,
         }
+    }
+@app.get("/api/devices/{device_id}/alerts")
+def get_device_alerts(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    alerts = db.query(Alert).filter(
+        Alert.device_id == device_id
+    ).order_by(
+        Alert.timestamp.desc()
+    ).all()
+
+    return alerts
+@app.put("/api/alerts/{alert_id}/acknowledge")
+def acknowledge_alert(
+    alert_id: int,
+    db: Session = Depends(get_db)
+):
+    alert = db.query(Alert).filter(
+        Alert.id == alert_id
+    ).first()
+
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail="Alert not found"
+        )
+
+    alert.acknowledged = 1
+
+    db.commit()
+    db.refresh(alert)
+
+    return {
+        "message": "Alert acknowledged successfully",
+        "alert_id": alert.id,
+        "acknowledged": alert.acknowledged
     }

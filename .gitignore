@@ -4,3 +4,14 @@ __pycache__/
 venv/
 .env
 .vscode/
+# Python
+__pycache__/
+*.pyc
+
+# VirtualEdge local database
+virtualedge.db
+backend/virtualedge.db
+
+# Virtual environments
+venv/
+.venv/

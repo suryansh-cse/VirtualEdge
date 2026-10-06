@@ -316,3 +316,98 @@ def acknowledge_alert(
         "alert_id": alert.id,
         "acknowledged": alert.acknowledged
     }
+@app.get("/api/devices/{device_id}/status")
+def get_device_status(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    return {
+        "device_id": device.device_id,
+        "name": device.name,
+        "status": device.status,
+        "last_seen": device.last_seen,
+        "firmware_version": device.firmware_version
+    }
+@app.get("/api/system/summary")
+def get_system_summary(
+    db: Session = Depends(get_db)
+):
+    total_devices = db.query(Device).count()
+
+    online_devices = db.query(Device).filter(
+        Device.status == "online"
+    ).count()
+
+    total_alerts = db.query(Alert).count()
+
+    active_alerts = db.query(Alert).filter(
+        Alert.acknowledged == 0
+    ).count()
+
+    acknowledged_alerts = db.query(Alert).filter(
+        Alert.acknowledged == 1
+    ).count()
+
+    return {
+        "devices": {
+            "total": total_devices,
+            "online": online_devices,
+            "offline": total_devices - online_devices
+        },
+        "alerts": {
+            "total": total_alerts,
+            "active": active_alerts,
+            "acknowledged": acknowledged_alerts
+        }
+    }
+@app.get("/api/alerts/recent")
+def get_recent_alerts(
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    alerts = db.query(Alert).order_by(
+        Alert.timestamp.desc()
+    ).limit(limit).all()
+
+    return alerts
+@app.get("/api/dashboard/devices")
+def get_dashboard_devices(
+    db: Session = Depends(get_db)
+):
+    devices = db.query(Device).all()
+
+    result = []
+
+    for device in devices:
+        latest_telemetry = db.query(Telemetry).filter(
+            Telemetry.device_id == device.device_id
+        ).order_by(
+            Telemetry.timestamp.desc()
+        ).first()
+
+        active_alerts = db.query(Alert).filter(
+            Alert.device_id == device.device_id,
+            Alert.acknowledged == 0
+        ).count()
+
+        result.append({
+            "device_id": device.device_id,
+            "name": device.name,
+            "status": device.status,
+            "firmware_version": device.firmware_version,
+            "last_seen": device.last_seen,
+            "active_alerts": active_alerts,
+            "latest_telemetry": latest_telemetry
+        })
+
+    return result

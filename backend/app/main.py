@@ -1,16 +1,24 @@
-from fastapi import FastAPI, Depends
+from datetime import datetime, timedelta
+
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
-from .health import evaluate_device_health
-from fastapi import FastAPI, Depends, HTTPException
+
 from .database import engine, SessionLocal
-from .models import Base, Device, Telemetry, Alert 
+from .models import Base, Device, Telemetry, Alert
 from .health import evaluate_device_health
 
-# Create database tables
+
+# --------------------------------------------------
+# Database
+# --------------------------------------------------
+
 Base.metadata.create_all(bind=engine)
 
+
+# --------------------------------------------------
+# FastAPI application
+# --------------------------------------------------
 
 app = FastAPI(
     title="VirtualEdge API",
@@ -19,9 +27,9 @@ app = FastAPI(
 )
 
 
-# -------------------------
-# Database connection
-# -------------------------
+# --------------------------------------------------
+# Database dependency
+# --------------------------------------------------
 
 def get_db():
     db = SessionLocal()
@@ -32,9 +40,9 @@ def get_db():
         db.close()
 
 
-# -------------------------
-# Telemetry schema
-# -------------------------
+# --------------------------------------------------
+# Schemas
+# --------------------------------------------------
 
 class TelemetryData(BaseModel):
     device_id: str
@@ -47,9 +55,16 @@ class TelemetryData(BaseModel):
     fault_status: str
     packet_id: str | None = None
 
-# -------------------------
+
+class DeviceData(BaseModel):
+    device_id: str
+    name: str
+    firmware_version: str = "1.0.0"
+
+
+# --------------------------------------------------
 # Basic routes
-# -------------------------
+# --------------------------------------------------
 
 @app.get("/")
 def root():
@@ -66,74 +81,9 @@ def health_check():
     }
 
 
-# -------------------------
-# Telemetry
-# -------------------------
-
-@app.post("/api/telemetry")
-def receive_telemetry(
-    data: TelemetryData,
-    db: Session = Depends(get_db)
-):
-
-    telemetry = Telemetry(
-        device_id=data.device_id,
-        temperature=data.temperature,
-        voltage=data.voltage,
-        current=data.current,
-        battery=data.battery,
-        raw_adc=data.raw_adc,
-        filtered_adc=data.filtered_adc,
-        fault_status=data.fault_status,
-        packet_id=data.packet_id,
-        timestamp=datetime.utcnow()
-    )
-
-    db.add(telemetry)
-
-    # Update device status
-    device = db.query(Device).filter(
-        Device.device_id == data.device_id
-    ).first()
-
-    if device:
-        device.status = "online"
-        device.last_seen = datetime.utcnow()
-
-    db.commit()
-    db.refresh(telemetry)
-
-    # Evaluate device health
-    health = evaluate_device_health(
-        temperature=data.temperature,
-        voltage=data.voltage,
-        current=data.current,
-        battery=data.battery
-    )
-        # Create alert when telemetry reports a fault
-    if data.fault_status != "NORMAL":
-
-        alert = Alert(
-            device_id=data.device_id,
-            alert_type="DEVICE_FAULT",
-            message=f"Device reported fault status: {data.fault_status}",
-            severity="critical"
-        )
-
-        db.add(alert)
-        db.commit()
-
-    return {
-        "message": "Telemetry saved successfully",
-        "telemetry_id": telemetry.id,
-        "health": health
-    }
-
-class DeviceData(BaseModel):
-    device_id: str
-    name: str
-    firmware_version: str = "1.0.0"
-
+# --------------------------------------------------
+# Device registration
+# --------------------------------------------------
 
 @app.post("/api/devices")
 def register_device(
@@ -172,172 +122,21 @@ def register_device(
     }
 
 
+# --------------------------------------------------
+# Get all devices
+# --------------------------------------------------
+
 @app.get("/api/devices")
-def get_devices(db: Session = Depends(get_db)):
-    devices = db.query(Device).all()
-
-    return devices
-
-
-@app.get("/api/devices/{device_id}")
-def get_device(
-    device_id: str,
+def get_devices(
     db: Session = Depends(get_db)
 ):
-    device = db.query(Device).filter(
-        Device.device_id == device_id
-    ).first()
+    return db.query(Device).all()
 
-    if not device:
-        raise HTTPException(
-            status_code=404,
-            detail="Device not found"
-        )
 
-    return device
-@app.get("/api/devices/{device_id}/telemetry")
-def get_device_telemetry(
-    device_id: str,
-    limit: int = 20,
-    db: Session = Depends(get_db)
-):
-    telemetry = db.query(Telemetry).filter(
-        Telemetry.device_id == device_id
-    ).order_by(
-        Telemetry.timestamp.desc()
-    ).limit(limit).all()
+# --------------------------------------------------
+# System summary
+# --------------------------------------------------
 
-    if not telemetry:
-        raise HTTPException(
-            status_code=404,
-            detail="No telemetry found for this device"
-        )
-
-    return telemetry
-@app.get("/api/devices/{device_id}/latest")
-def get_latest_telemetry(
-    device_id: str,
-    db: Session = Depends(get_db)
-):
-    telemetry = db.query(Telemetry).filter(
-        Telemetry.device_id == device_id
-    ).order_by(
-        Telemetry.timestamp.desc()
-    ).first()
-
-    if not telemetry:
-        raise HTTPException(
-            status_code=404,
-            detail="No telemetry found for this device"
-        )
-
-    return telemetry
-@app.get("/api/devices/{device_id}/summary")
-def get_device_summary(
-    device_id: str,
-    db: Session = Depends(get_db)
-):
-    device = db.query(Device).filter(
-        Device.device_id == device_id
-    ).first()
-
-    if not device:
-        raise HTTPException(
-            status_code=404,
-            detail="Device not found"
-        )
-
-    latest = db.query(Telemetry).filter(
-        Telemetry.device_id == device_id
-    ).order_by(
-        Telemetry.timestamp.desc()
-    ).first()
-
-    if not latest:
-        raise HTTPException(
-            status_code=404,
-            detail="No telemetry found for this device"
-        )
-
-    return {
-        "device": {
-            "device_id": device.device_id,
-            "name": device.name,
-            "firmware_version": device.firmware_version,
-            "status": device.status,
-            "last_seen": device.last_seen,
-        },
-        "latest_telemetry": {
-            "temperature": latest.temperature,
-            "voltage": latest.voltage,
-            "current": latest.current,
-            "battery": latest.battery,
-            "raw_adc": latest.raw_adc,
-            "filtered_adc": latest.filtered_adc,
-            "fault_status": latest.fault_status,
-            "packet_id": latest.packet_id,
-            "timestamp": latest.timestamp,
-        }
-    }
-@app.get("/api/devices/{device_id}/alerts")
-def get_device_alerts(
-    device_id: str,
-    db: Session = Depends(get_db)
-):
-    alerts = db.query(Alert).filter(
-        Alert.device_id == device_id
-    ).order_by(
-        Alert.timestamp.desc()
-    ).all()
-
-    return alerts
-@app.put("/api/alerts/{alert_id}/acknowledge")
-def acknowledge_alert(
-    alert_id: int,
-    db: Session = Depends(get_db)
-):
-    alert = db.query(Alert).filter(
-        Alert.id == alert_id
-    ).first()
-
-    if not alert:
-        raise HTTPException(
-            status_code=404,
-            detail="Alert not found"
-        )
-
-    alert.acknowledged = 1
-
-    db.commit()
-    db.refresh(alert)
-
-    return {
-        "message": "Alert acknowledged successfully",
-        "alert_id": alert.id,
-        "acknowledged": alert.acknowledged
-    }
-@app.get("/api/devices/{device_id}/status")
-def get_device_status(
-    device_id: str,
-    db: Session = Depends(get_db)
-):
-    device = db.query(Device).filter(
-        Device.device_id == device_id
-    ).first()
-
-    if not device:
-        raise HTTPException(
-            status_code=404,
-            detail="Device not found"
-        )
-
-    return {
-        "device_id": device.device_id,
-        "name": device.name,
-        "status": device.status,
-        "last_seen": device.last_seen,
-        "firmware_version": device.firmware_version
-    }
 @app.get("/api/system/summary")
 def get_system_summary(
     db: Session = Depends(get_db)
@@ -370,16 +169,139 @@ def get_system_summary(
             "acknowledged": acknowledged_alerts
         }
     }
+
+
+# --------------------------------------------------
+# Recent alerts
+# --------------------------------------------------
+
 @app.get("/api/alerts/recent")
 def get_recent_alerts(
     limit: int = 10,
     db: Session = Depends(get_db)
 ):
+    if limit < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be greater than 0"
+        )
+
     alerts = db.query(Alert).order_by(
         Alert.timestamp.desc()
     ).limit(limit).all()
 
     return alerts
+
+
+# --------------------------------------------------
+# Acknowledge alert
+# --------------------------------------------------
+
+@app.put("/api/alerts/{alert_id}/acknowledge")
+def acknowledge_alert(
+    alert_id: int,
+    db: Session = Depends(get_db)
+):
+    alert = db.query(Alert).filter(
+        Alert.id == alert_id
+    ).first()
+
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail="Alert not found"
+        )
+
+    alert.acknowledged = 1
+
+    db.commit()
+    db.refresh(alert)
+
+    return {
+        "message": "Alert acknowledged successfully",
+        "alert_id": alert.id,
+        "acknowledged": alert.acknowledged
+    }
+
+
+# --------------------------------------------------
+# Device heartbeat
+# --------------------------------------------------
+
+@app.post("/api/devices/{device_id}/heartbeat")
+def device_heartbeat(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    now = datetime.utcnow()
+
+    device.status = "online"
+    device.last_seen = now
+
+    db.commit()
+    db.refresh(device)
+
+    return {
+        "device_id": device.device_id,
+        "status": device.status,
+        "last_seen": device.last_seen
+    }
+
+
+# --------------------------------------------------
+# Automatic device status check
+# --------------------------------------------------
+
+@app.post("/api/devices/check-status")
+def check_device_status(
+    db: Session = Depends(get_db)
+):
+    now = datetime.utcnow()
+    timeout = timedelta(seconds=60)
+
+    devices = db.query(Device).all()
+
+    updated_devices = []
+
+    for device in devices:
+
+        if device.last_seen is None:
+            device.status = "offline"
+
+        elif now - device.last_seen > timeout:
+            device.status = "offline"
+
+        else:
+            device.status = "online"
+
+        updated_devices.append({
+            "device_id": device.device_id,
+            "status": device.status,
+            "last_seen": device.last_seen
+        })
+
+    db.commit()
+
+    return {
+        "checked_at": now,
+        "devices": updated_devices
+    }
+
+
+# --------------------------------------------------
+# Dashboard devices
+# --------------------------------------------------
+
 @app.get("/api/dashboard/devices")
 def get_dashboard_devices(
     db: Session = Depends(get_db)
@@ -389,6 +311,7 @@ def get_dashboard_devices(
     result = []
 
     for device in devices:
+
         latest_telemetry = db.query(Telemetry).filter(
             Telemetry.device_id == device.device_id
         ).order_by(
@@ -400,6 +323,13 @@ def get_dashboard_devices(
             Alert.acknowledged == 0
         ).count()
 
+        if active_alerts > 0:
+            health = "critical"
+        elif device.status == "offline":
+            health = "offline"
+        else:
+            health = "healthy"
+
         result.append({
             "device_id": device.device_id,
             "name": device.name,
@@ -407,7 +337,264 @@ def get_dashboard_devices(
             "firmware_version": device.firmware_version,
             "last_seen": device.last_seen,
             "active_alerts": active_alerts,
+            "health": health,
             "latest_telemetry": latest_telemetry
         })
 
     return result
+
+
+# --------------------------------------------------
+# Telemetry ingestion
+# --------------------------------------------------
+
+@app.post("/api/telemetry")
+def receive_telemetry(
+    data: TelemetryData,
+    db: Session = Depends(get_db)
+):
+    now = datetime.utcnow()
+
+    telemetry = Telemetry(
+        device_id=data.device_id,
+        temperature=data.temperature,
+        voltage=data.voltage,
+        current=data.current,
+        battery=data.battery,
+        raw_adc=data.raw_adc,
+        filtered_adc=data.filtered_adc,
+        fault_status=data.fault_status,
+        packet_id=data.packet_id,
+        timestamp=now
+    )
+
+    db.add(telemetry)
+
+    # Update device status
+    device = db.query(Device).filter(
+        Device.device_id == data.device_id
+    ).first()
+
+    if device:
+        device.status = "online"
+        device.last_seen = now
+
+    # Evaluate health
+    health = evaluate_device_health(
+        temperature=data.temperature,
+        voltage=data.voltage,
+        current=data.current,
+        battery=data.battery
+    )
+
+    # Create alert when device reports a fault
+    if data.fault_status != "NORMAL":
+
+        alert = Alert(
+            device_id=data.device_id,
+            alert_type="DEVICE_FAULT",
+            message=f"Device reported fault status: {data.fault_status}",
+            severity="critical",
+            acknowledged=0
+        )
+
+        db.add(alert)
+
+    db.commit()
+    db.refresh(telemetry)
+
+    return {
+        "message": "Telemetry saved successfully",
+        "telemetry_id": telemetry.id,
+        "health": health
+    }
+
+
+# --------------------------------------------------
+# Device status
+# --------------------------------------------------
+
+@app.get("/api/devices/{device_id}/status")
+def get_device_status(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    return {
+        "device_id": device.device_id,
+        "name": device.name,
+        "status": device.status,
+        "last_seen": device.last_seen,
+        "firmware_version": device.firmware_version
+    }
+
+
+# --------------------------------------------------
+# Device details
+# --------------------------------------------------
+
+@app.get("/api/devices/{device_id}")
+def get_device(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    return device
+
+
+# --------------------------------------------------
+# Device telemetry history
+# --------------------------------------------------
+
+@app.get("/api/devices/{device_id}/telemetry")
+def get_device_telemetry(
+    device_id: str,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    if limit < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be greater than 0"
+        )
+
+    telemetry = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).limit(limit).all()
+
+    if not telemetry:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    return telemetry
+
+
+# --------------------------------------------------
+# Latest telemetry
+# --------------------------------------------------
+
+@app.get("/api/devices/{device_id}/latest")
+def get_latest_telemetry(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    telemetry = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).first()
+
+    if not telemetry:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    return telemetry
+
+
+# --------------------------------------------------
+# Device summary
+# --------------------------------------------------
+
+@app.get("/api/devices/{device_id}/summary")
+def get_device_summary(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    latest = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).first()
+
+    if not latest:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    active_alerts = db.query(Alert).filter(
+        Alert.device_id == device_id,
+        Alert.acknowledged == 0
+    ).count()
+
+    if active_alerts > 0:
+        health = "critical"
+    elif device.status == "offline":
+        health = "offline"
+    else:
+        health = "healthy"
+
+    return {
+        "device": {
+            "device_id": device.device_id,
+            "name": device.name,
+            "firmware_version": device.firmware_version,
+            "status": device.status,
+            "health": health,
+            "last_seen": device.last_seen,
+            "active_alerts": active_alerts
+        },
+        "latest_telemetry": {
+            "temperature": latest.temperature,
+            "voltage": latest.voltage,
+            "current": latest.current,
+            "battery": latest.battery,
+            "raw_adc": latest.raw_adc,
+            "filtered_adc": latest.filtered_adc,
+            "fault_status": latest.fault_status,
+            "packet_id": latest.packet_id,
+            "timestamp": latest.timestamp
+        }
+    }
+
+
+# --------------------------------------------------
+# Device alerts
+# --------------------------------------------------
+
+@app.get("/api/devices/{device_id}/alerts")
+def get_device_alerts(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    alerts = db.query(Alert).filter(
+        Alert.device_id == device_id
+    ).order_by(
+        Alert.timestamp.desc()
+    ).all()
+
+    return alerts

@@ -598,3 +598,140 @@ def get_device_alerts(
     ).all()
 
     return alerts
+@app.get("/api/devices/{device_id}/telemetry/stats")
+def get_telemetry_stats(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    telemetry = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).all()
+
+    if not telemetry:
+        raise HTTPException(
+            status_code=404,
+            detail="No telemetry found for this device"
+        )
+
+    temperatures = [
+        item.temperature
+        for item in telemetry
+        if item.temperature is not None
+    ]
+
+    voltages = [
+        item.voltage
+        for item in telemetry
+        if item.voltage is not None
+    ]
+
+    currents = [
+        item.current
+        for item in telemetry
+        if item.current is not None
+    ]
+
+    batteries = [
+        item.battery
+        for item in telemetry
+        if item.battery is not None
+    ]
+
+    normal_samples = sum(
+        1
+        for item in telemetry
+        if item.fault_status == "NORMAL"
+    )
+
+    fault_samples = sum(
+        1
+        for item in telemetry
+        if item.fault_status != "NORMAL"
+    )
+
+    reliability = (
+        (normal_samples / len(telemetry)) * 100
+        if telemetry
+        else 0
+    )
+
+    return {
+        "device_id": device_id,
+        "samples": len(telemetry),
+
+        "reliability": {
+            "percentage": round(reliability, 2)
+        },
+
+        "faults": {
+            "normal": normal_samples,
+            "fault": fault_samples
+        },
+
+        "temperature": {
+            "average": sum(temperatures) / len(temperatures),
+            "minimum": min(temperatures),
+            "maximum": max(temperatures)
+        },
+
+        "voltage": {
+            "average": sum(voltages) / len(voltages),
+            "minimum": min(voltages),
+            "maximum": max(voltages)
+        },
+
+        "current": {
+            "average": sum(currents) / len(currents),
+            "minimum": min(currents),
+            "maximum": max(currents)
+        },
+
+        "battery": {
+            "average": sum(batteries) / len(batteries),
+            "minimum": min(batteries),
+            "maximum": max(batteries)
+        }
+    }
+@app.get("/api/devices/{device_id}/telemetry/recent")
+def get_recent_telemetry(
+    device_id: str,
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 100"
+        )
+
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+
+    telemetry = db.query(Telemetry).filter(
+        Telemetry.device_id == device_id
+    ).order_by(
+        Telemetry.timestamp.desc()
+    ).limit(limit).all()
+
+    return {
+        "device_id": device_id,
+        "count": len(telemetry),
+        "telemetry": telemetry
+    }

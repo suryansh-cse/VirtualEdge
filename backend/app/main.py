@@ -735,3 +735,211 @@ def get_recent_telemetry(
         "count": len(telemetry),
         "telemetry": telemetry
     }
+
+# --------------------------------------------------
+# Dashboard overview
+# --------------------------------------------------
+
+@app.get("/api/dashboard/overview")
+def get_dashboard_overview(
+    db: Session = Depends(get_db)
+):
+    devices = db.query(Device).all()
+
+    total_devices = len(devices)
+    online_devices = sum(
+        1 for device in devices
+        if device.status == "online"
+    )
+    offline_devices = total_devices - online_devices
+
+    total_alerts = db.query(Alert).count()
+
+    active_alerts = db.query(Alert).filter(
+        Alert.acknowledged == 0
+    ).count()
+
+    acknowledged_alerts = db.query(Alert).filter(
+        Alert.acknowledged == 1
+    ).count()
+
+    device_health = []
+    latest_batteries = []
+    latest_temperatures = []
+
+    for device in devices:
+        active_device_alerts = db.query(Alert).filter(
+            Alert.device_id == device.device_id,
+            Alert.acknowledged == 0
+        ).count()
+
+        if active_device_alerts > 0:
+            health = "critical"
+        elif device.status != "online":
+            health = "offline"
+        else:
+            health = "healthy"
+
+        latest = db.query(Telemetry).filter(
+            Telemetry.device_id == device.device_id
+        ).order_by(
+            Telemetry.timestamp.desc()
+        ).first()
+
+        latest_telemetry = None
+
+        if latest:
+            latest_telemetry = {
+                "id": latest.id,
+                "temperature": latest.temperature,
+                "voltage": latest.voltage,
+                "current": latest.current,
+                "battery": latest.battery,
+                "raw_adc": latest.raw_adc,
+                "filtered_adc": latest.filtered_adc,
+                "fault_status": latest.fault_status,
+                "packet_id": latest.packet_id,
+                "timestamp": latest.timestamp
+            }
+
+            if latest.battery is not None:
+                latest_batteries.append(latest.battery)
+
+            if latest.temperature is not None:
+                latest_temperatures.append(latest.temperature)
+
+        device_health.append({
+            "device_id": device.device_id,
+            "name": device.name,
+            "status": device.status,
+            "firmware_version": device.firmware_version,
+            "last_seen": device.last_seen,
+            "health": health,
+            "active_alerts": active_device_alerts,
+            "latest_telemetry": latest_telemetry
+        })
+
+    average_battery = (
+        sum(latest_batteries) / len(latest_batteries)
+        if latest_batteries
+        else 0
+    )
+
+    average_temperature = (
+        sum(latest_temperatures) / len(latest_temperatures)
+        if latest_temperatures
+        else 0
+    )
+
+    return {
+        "devices": {
+            "total": total_devices,
+            "online": online_devices,
+            "offline": offline_devices
+        },
+        "alerts": {
+            "total": total_alerts,
+            "active": active_alerts,
+            "acknowledged": acknowledged_alerts
+        },
+        "telemetry": {
+            "average_battery": round(average_battery, 2),
+            "average_temperature": round(average_temperature, 2)
+        },
+        "device_health": device_health
+    }
+@app.get("/api/dashboard/alerts")
+def get_dashboard_alerts(
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    if limit < 1 or limit > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 50"
+        )
+
+    alerts = db.query(Alert).order_by(
+        Alert.timestamp.desc()
+    ).limit(limit).all()
+
+    return {
+        "count": len(alerts),
+        "alerts": [
+            {
+                "id": alert.id,
+                "device_id": alert.device_id,
+                "alert_type": alert.alert_type,
+                "message": alert.message,
+                "severity": alert.severity,
+                "timestamp": alert.timestamp,
+                "acknowledged": alert.acknowledged
+            }
+            for alert in alerts
+        ]
+    }
+@app.get("/api/dashboard/telemetry")
+def get_dashboard_telemetry(
+    db: Session = Depends(get_db)
+):
+    devices = db.query(Device).all()
+
+    telemetry_data = []
+
+    for device in devices:
+        latest = db.query(Telemetry).filter(
+            Telemetry.device_id == device.device_id
+        ).order_by(
+            Telemetry.timestamp.desc()
+        ).first()
+
+        if latest:
+            telemetry_data.append({
+                "device_id": device.device_id,
+                "name": device.name,
+                "timestamp": latest.timestamp,
+                "temperature": latest.temperature,
+                "voltage": latest.voltage,
+                "current": latest.current,
+                "battery": latest.battery,
+                "fault_status": latest.fault_status,
+                "packet_id": latest.packet_id
+            })
+
+    return {
+        "count": len(telemetry_data),
+        "telemetry": telemetry_data
+    }
+@app.get("/api/dashboard/health")
+def get_dashboard_health(
+    db: Session = Depends(get_db)
+):
+    devices = db.query(Device).all()
+
+    healthy = 0
+    warning = 0
+    critical = 0
+    offline = 0
+
+    for device in devices:
+        if device.status != "online":
+            offline += 1
+            continue
+
+        active_alerts = db.query(Alert).filter(
+            Alert.device_id == device.device_id,
+            Alert.acknowledged == 0
+        ).count()
+
+        if active_alerts > 0:
+            critical += 1
+        else:
+            healthy += 1
+
+    return {
+        "healthy": healthy,
+        "warning": warning,
+        "critical": critical,
+        "offline": offline,
+        "total": len(devices)
+    }
